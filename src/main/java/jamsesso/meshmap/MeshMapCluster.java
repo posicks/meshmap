@@ -2,8 +2,10 @@ package jamsesso.meshmap;
 
 import java.util.List;
 
-public interface MeshMapCluster {
-  List<Node> getAllNodes();
+public interface MeshMapCluster 
+{
+    public List<Node> getAllNodes();
 
-  <K, V> MeshMap<K, V> join() throws MeshMapException;
+    public <K, V> MeshMap<K, V> join()
+    throws MeshMapException;
 }

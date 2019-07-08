@@ -2,3 +2,9 @@
 .gradle
 cluster*
 build
+/bin/
+/.settings/
+/.classpath
+*.DS_Store
+/.project
+/gradle-app.setting

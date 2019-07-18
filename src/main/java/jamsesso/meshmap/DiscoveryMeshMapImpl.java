@@ -3,6 +3,8 @@
  */
 package jamsesso.meshmap;
 
+import java.util.Arrays;
+import java.util.List;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
@@ -27,20 +29,34 @@ public class DiscoveryMeshMapImpl<K, V> extends MeshMapImpl<K, V> implements Han
             switch (response.getType())
             {
                 case Message.TYPE_HI:
+                {
+                    Node node = response.getNode();
+                    List<Node> nodes = cluster.getAllNodes();
+                    if (!nodes.contains(node))
+                    {
+                        cluster.register(node);
+                    }
+                    return new Message(Message.TYPE_ACK, nodes.toArray());
+                }
                 case Message.TYPE_BYE:
                 {
-                    return new Message(Message.TYPE_ACK, cluster.getAllNodes().toArray());
+                    cluster.unregister(response.getNode());
+                    return Message.ACK;
                 }
                 case Message.TYPE_ACK:
                 {
                     Node[] nodes = response.getPayload(Node[].class);
-                    if (nodes != null)
+                    if (nodes != null && nodes.length > 0)
                     {
-                        for (Node node : nodes)
+                        List<Node> newNodes = Arrays.asList(nodes);
+                        newNodes.removeAll(cluster.getAllNodes());
+                        for (Node node : newNodes)
                         {
                             try
                             {
-                                super.cluster.register(node);
+                                // Register Node and send HI message
+                                cluster.register(node);
+                                server.message(node, Message.HI);
                             } catch (MeshMapException e)
                             {
                                 LOG.log(Level.SEVERE, "Could not register Node: " + e.getMessage(), e);

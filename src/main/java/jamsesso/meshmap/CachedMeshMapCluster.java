@@ -50,6 +50,7 @@ public class CachedMeshMapCluster implements MeshMapCluster
         lock.lock();
         try
         {
+            clearCache();
             return delegate.join();
         } finally
         {
@@ -74,12 +75,14 @@ public class CachedMeshMapCluster implements MeshMapCluster
 
 
     @Override
+    @SuppressWarnings("unchecked")
     public File register(Node node)
     throws MeshMapException
     {
         lock.lock();
         try
         {
+            clearCache();
             return delegate.register(node);
         } finally
         {
@@ -89,11 +92,13 @@ public class CachedMeshMapCluster implements MeshMapCluster
 
 
     @Override
+    @SuppressWarnings("unchecked")
     public File unregister(Node node)
     {
         lock.lock();
         try
         {
+            clearCache();
             return delegate.unregister(node);
         } finally
         {

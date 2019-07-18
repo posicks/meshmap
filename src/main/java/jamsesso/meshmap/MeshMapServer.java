@@ -6,7 +6,7 @@ import java.io.OutputStream;
 import java.net.ServerSocket;
 import java.net.Socket;
 import java.net.SocketException;
-import java.util.Map;
+import java.util.List;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 import java.util.stream.Collectors;
@@ -15,17 +15,19 @@ public class MeshMapServer implements Runnable, AutoCloseable
 {
     private static final Logger LOG = Logger.getLogger(MeshMapServer.class.getName());
     
-    private final MeshMapCluster cluster;
+    protected final MeshMapCluster cluster;
     
-    private final Node self;
+    protected final Node self;
     
-    private MessageHandler messageHandler;
+    protected Handler<Message> handler;
     
-    private volatile boolean started = false;
+    protected volatile boolean started = false;
     
-    private volatile IOException failure = null;
+    protected volatile IOException failure = null;
     
-    private ServerSocket serverSocket;
+    protected ServerSocket serverSocket;
+
+    protected Thread thread;
     
     
     public MeshMapServer(MeshMapCluster cluster, Node self)
@@ -35,19 +37,31 @@ public class MeshMapServer implements Runnable, AutoCloseable
     }
     
     
-    public void start(MessageHandler messageHandler)
+    public MeshMapServer start(Handler<Message> handler)
     throws IOException
     {
-        if (this.messageHandler != null)
+        if (this.started)
         {
-            throw new IllegalStateException("Cannot restart a dead mesh map server");
+            return this;
         }
         
-        this.messageHandler = messageHandler;
-        new Thread(this).start();
+        this.handler = null;
+        this.failure = null;
+        this.thread = null;
+        
+        if (handler == null)
+        {
+            this.handler = (response) -> { return response; }; 
+        } else
+        {
+            this.handler = handler;
+        }
+        
+        this.thread = new Thread(new ThreadGroup("MeshMap Threads"), this, "MeshMap Main Thread");
+        thread.start();
         
         // Wait for the server to start.
-        while (!started)
+        while (!this.started)
         {
             try
             {
@@ -58,10 +72,65 @@ public class MeshMapServer implements Runnable, AutoCloseable
             }
         }
         
-        if (failure != null)
+        if (this.failure != null)
         {
-            throw failure;
+            throw this.failure;
         }
+        
+        return this;
+    }
+    
+    
+    @Override
+    public void run()
+    {
+        ServerSocket serverSocket;
+        
+        try
+        {
+            this.serverSocket = serverSocket = new ServerSocket(self.getAddress().getPort());
+            this.started = true;
+
+            while (!serverSocket.isClosed())
+            {
+                try (Socket socket = serverSocket.accept();
+                InputStream inputStream = socket.getInputStream();
+                OutputStream outputStream = socket.getOutputStream())
+                {
+                    Message response = handler.handle(Message.read(inputStream));
+                    
+                    if (response == null)
+                    {
+                        response = Message.ACK;
+                    }
+                    
+                    response.write(outputStream);
+                    outputStream.flush();
+                } catch (SocketException e)
+                {
+                    // Socket was closed. Nothing to do here. Node is going down.
+                } catch (IOException e)
+                {
+                    LOG.log(Level.SEVERE, "Unable to accept connection", e);
+                }
+            }
+        } catch (IOException e)
+        {
+            this.failure = e;
+        }
+        
+        if (!this.serverSocket.isClosed())
+        {
+            try
+            {
+                this.serverSocket.close();
+            } catch (IOException e)
+            {
+                LOG.log(Level.WARNING, "Unable to close Server Socket", e);
+            }
+        }
+        
+        this.started = false;
     }
     
     
@@ -78,9 +147,9 @@ public class MeshMapServer implements Runnable, AutoCloseable
                     try (OutputStream outputStream = socket.getOutputStream();
                     InputStream inputStream = socket.getInputStream())
                     {
-                        message.write(outputStream);
+                        message.assignNode(self).write(outputStream);
                         outputStream.flush();
-                        return Message.read(inputStream);
+                        return Message.read(inputStream).assignNode(node);
                     }
                 }
             }).on(IOException.class).times(3);
@@ -91,67 +160,41 @@ public class MeshMapServer implements Runnable, AutoCloseable
     }
     
     
-    public Map<Node, Message> broadcast(Message message)
+    public List<Message> broadcast(Message message)
     {
         return cluster.getAllNodes().parallelStream().filter(node -> !node.equals(self)).map(node -> {
             try
             {
-                return new BroadcastResponse(node, message(node, message));
+                return message(node, message);
             } catch (IOException e)
             {
                 LOG.log(Level.SEVERE, "Unable to broadcast message to node: " + node, e);
-                return new BroadcastResponse(node, Message.ERR);
+                return Message.ERR;
             }
-        }).collect(Collectors.toMap(BroadcastResponse::getNode, BroadcastResponse::getResponse));
+        }).collect(Collectors.toList());
     }
     
     
-    @Override
-    public void run()
+    public void stop()
     {
-        try
-        {
-            serverSocket = new ServerSocket(self.getAddress().getPort());
-        } catch (IOException e)
-        {
-            failure = e;
-        } finally
-        {
-            started = true;
-        }
-        
-        while (!serverSocket.isClosed())
-        {
-            try (Socket socket = serverSocket.accept();
-            InputStream inputStream = socket.getInputStream();
-            OutputStream outputStream = socket.getOutputStream())
-            {
-                Message message = Message.read(inputStream);
-                Message response = messageHandler.handle(message);
-                
-                if (response == null)
-                {
-                    response = Message.ACK;
-                }
-                
-                response.write(outputStream);
-                outputStream.flush();
-            } catch (SocketException e)
-            {
-                // Socket was closed. Nothing to do here. Node is going down.
-            } catch (IOException e)
-            {
-                LOG.log(Level.SEVERE, "Unable to accept connection", e);
-            }
-        }
+        this.started = false;
+        this.failure = null;
     }
     
     
     @Override
     public void close()
-    throws Exception
     {
-        serverSocket.close();
+        try
+        {
+            serverSocket.close();
+        } catch (IOException e)
+        {
+            LOG.log(Level.WARNING, "Error closing Server Socket", e);
+        } finally
+        {
+            started = false;
+        }
     }
     
     
@@ -167,8 +210,8 @@ public class MeshMapServer implements Runnable, AutoCloseable
         final Object thatCluster = other.cluster;
         final Object thisSelf = this.self;
         final Object thatSelf = other.self;
-        final Object thisMessageHandler = this.messageHandler;
-        final Object thatMessageHandler = other.messageHandler;
+        final Object thisMessageHandler = this.handler;
+        final Object thatMessageHandler = other.handler;
         final Object thisServerSocket = this.serverSocket;
         final Object thatServerSocket = other.serverSocket;
         if (thisCluster == null ? thatCluster != null : !thisCluster.equals(thatCluster))
@@ -190,7 +233,7 @@ public class MeshMapServer implements Runnable, AutoCloseable
         int result = 1;
         final Object cluster = this.cluster;
         final Object self = this.self;
-        final Object messageHandler = this.messageHandler;
+        final Object messageHandler = this.handler;
         final Object serverSocket = this.serverSocket;
         result = result * PRIME + (cluster == null ? 0 : cluster.hashCode());
         result = result * PRIME + (self == null ? 0 : self.hashCode());
@@ -204,75 +247,5 @@ public class MeshMapServer implements Runnable, AutoCloseable
     public String toString()
     {
         return "MeshMapServer(Self={" + self + "}, Cluster={" + cluster + "}, ServerSocket={" + serverSocket + "}, Started=" + started + (failure == null ? "" : ", Failure={" + failure + "}");
-    }
-    
-    
-    // @Value
-    private static final class BroadcastResponse
-    {
-        private Node node;
-        
-        private Message response;
-        
-        
-        @java.beans.ConstructorProperties({"node",
-                                           "response"})
-        public BroadcastResponse(Node node, Message response)
-        {
-            this.node = node;
-            this.response = response;
-        }
-        
-        
-        public Node getNode()
-        {
-            return this.node;
-        }
-        
-        
-        public Message getResponse()
-        {
-            return response;
-        }
-        
-        
-        @java.lang.Override
-        public boolean equals(Object o)
-        {
-            if (o == this)
-                return true;
-            if (!(o instanceof BroadcastResponse))
-                return false;
-            final BroadcastResponse other = (BroadcastResponse) o;
-            final Object thisNode = this.getNode();
-            final Object thatNode = other.getNode();
-            if (thisNode == null ? thatNode != null : !thisNode.equals(thatNode))
-                return false;
-            final Object thisResponse = this.getResponse();
-            final Object thatResponse = other.getResponse();
-            if (thisResponse == null ? thatResponse != null : !thisResponse.equals(thatResponse))
-                return false;
-            return true;
-        }
-        
-        
-        @java.lang.Override
-        public int hashCode()
-        {
-            final int PRIME = 31;
-            int result = 1;
-            final Object node = this.getNode();
-            final Object response = this.getNode();
-            result = result * PRIME + (node == null ? 0 : node.hashCode());
-            result = result * PRIME + (response == null ? 0 : response.hashCode());
-            return result;
-        }
-        
-        
-        @java.lang.Override
-        public String toString()
-        {
-            return "BroadcastResponse(Node={" + getNode() + "}, response={" + getResponse() + "}";
-        }
     }
 }

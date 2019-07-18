@@ -1,14 +1,21 @@
 package jamsesso.meshmap;
 
+import java.io.File;
+import java.util.HashMap;
 import java.util.List;
+import java.util.concurrent.locks.ReentrantLock;
 
 public class CachedMeshMapCluster implements MeshMapCluster
 {
-    private final Object[] lock = new Object[0];
+    private final ReentrantLock lock = new ReentrantLock();
     
     private final MeshMapCluster delegate;
     
     private List<Node> nodes;
+
+    private Node successorNode;
+
+    private HashMap<Object, Node> nodeMap;
     
     
     public CachedMeshMapCluster(MeshMapCluster cluster)
@@ -20,7 +27,8 @@ public class CachedMeshMapCluster implements MeshMapCluster
     @Override
     public List<Node> getAllNodes()
     {
-        synchronized (lock)
+        lock.lock();
+        try
         {
             if (nodes == null)
             {
@@ -28,6 +36,9 @@ public class CachedMeshMapCluster implements MeshMapCluster
             }
             
             return nodes;
+        } finally
+        {
+            lock.unlock();
         }
     }
     
@@ -36,15 +47,102 @@ public class CachedMeshMapCluster implements MeshMapCluster
     public <K, V> MeshMap<K, V> join()
     throws MeshMapException
     {
-        return delegate.join();
+        lock.lock();
+        try
+        {
+            return delegate.join();
+        } finally
+        {
+            lock.unlock();
+        }
     }
     
     
     public void clearCache()
     {
-        synchronized (lock)
+        lock.lock();
+        try
         {
             nodes = null;
+            successorNode = null;
+            nodeMap = null;
+        } finally
+        {
+            lock.unlock();
+        }
+    }
+
+
+    @Override
+    public File register(Node node)
+    throws MeshMapException
+    {
+        lock.lock();
+        try
+        {
+            return delegate.register(node);
+        } finally
+        {
+            lock.unlock();
+        }
+    }
+
+
+    @Override
+    public File unregister(Node node)
+    {
+        lock.lock();
+        try
+        {
+            return delegate.unregister(node);
+        } finally
+        {
+            lock.unlock();
+        }
+    }
+
+
+    @Override
+    public Node getNodeForKey(Object key)
+    {
+        lock.lock();
+        try
+        {
+            Node node = null;
+
+            if (this.nodeMap == null)
+            {
+                this.nodeMap = new HashMap<Object, Node>();
+            }
+            
+            if ((node = this.nodeMap.get(key)) == null)
+            {
+                this.nodeMap.put(key, node = delegate.getNodeForKey(key));
+            }
+            
+            return node;
+        } finally
+        {
+            lock.unlock();
+        }
+    }
+
+
+    @Override
+    public Node getSuccessorNode()
+    {
+        lock.lock();
+        try
+        {
+            if (this.successorNode == null)
+            {
+                this.successorNode = delegate.getSuccessorNode();
+            }
+            
+            return this.successorNode;
+        } finally
+        {
+            lock.unlock();
         }
     }
 }

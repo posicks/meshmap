@@ -1,12 +1,12 @@
 package jamsesso.meshmap.examples;
 
-import jamsesso.meshmap.LocalMeshMapCluster;
-import jamsesso.meshmap.MeshMap;
-import jamsesso.meshmap.Node;
-
 import java.io.File;
 import java.net.InetSocketAddress;
 import java.util.UUID;
+
+import jamsesso.meshmap.LocalMeshMapCluster;
+import jamsesso.meshmap.MeshMap;
+import jamsesso.meshmap.Node;
 
 import static java.lang.System.out;
 

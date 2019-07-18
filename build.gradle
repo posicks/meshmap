@@ -2,8 +2,10 @@ plugins {
   id 'java'
 }
 
+//apply plugin: 'java'
+
 group 'jamsesso'
-version '1.0-SNAPSHOT'
+version '0.1.0-SNAPSHOT'
 
 sourceCompatibility = 1.8
 
@@ -12,5 +14,20 @@ repositories {
 }
 
 dependencies {
+  //compile group: 'dnsjava', name: 'dnsjava', version: '2.1.9'
+  //compile group: 'net.posick', name: 'mdnsjava', version: '2.2.0'
+  compile fileTree(dir: 'libs', include: '*.jar')
+
   testCompile group: 'junit', name: 'junit', version: '4.12'
+
+  //runtime group: 'dnsjava', name: 'dnsjava', version: '2.1.9'
+  //runtime group: 'net.posick', name: 'mdnsjava', version: '2.2.0'
+  runtime fileTree(dir: 'libs', include: '*.jar')
 }
+
+task copyToLib(type: Copy) {
+    into "$buildDir/output/libs"
+    from configurations.runtime
+}
+
+build.dependsOn(copyToLib)

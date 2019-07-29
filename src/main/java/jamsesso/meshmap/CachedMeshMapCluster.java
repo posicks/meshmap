@@ -1,28 +1,29 @@
 package jamsesso.meshmap;
-
+ 
 import java.io.File;
 import java.util.HashMap;
 import java.util.List;
 import java.util.concurrent.locks.ReentrantLock;
-
-public class CachedMeshMapCluster implements MeshMapCluster
+ 
+public class CachedMeshMapCluster extends AbstractMeshMapCluster implements MeshMapCluster
 {
     private final ReentrantLock lock = new ReentrantLock();
-    
+   
     private final MeshMapCluster delegate;
-    
+   
     private List<Node> nodes;
-
+ 
     private Node successorNode;
-
+ 
     private HashMap<Object, Node> nodeMap;
-    
+   
     
     public CachedMeshMapCluster(MeshMapCluster cluster)
     {
+        super(cluster.getSelf());
         this.delegate = cluster;
     }
-    
+   
     
     @Override
     public List<Node> getAllNodes()
@@ -34,14 +35,14 @@ public class CachedMeshMapCluster implements MeshMapCluster
             {
                 nodes = delegate.getAllNodes();
             }
-            
+           
             return nodes;
         } finally
         {
             lock.unlock();
         }
     }
-    
+   
     
     @Override
     public <K, V> MeshMap<K, V> join()
@@ -57,7 +58,7 @@ public class CachedMeshMapCluster implements MeshMapCluster
             lock.unlock();
         }
     }
-    
+   
     
     public void clearCache()
     {
@@ -72,8 +73,8 @@ public class CachedMeshMapCluster implements MeshMapCluster
             lock.unlock();
         }
     }
-
-
+ 
+ 
     @Override
     @SuppressWarnings("unchecked")
     public File register(Node node)
@@ -89,8 +90,8 @@ public class CachedMeshMapCluster implements MeshMapCluster
             lock.unlock();
         }
     }
-
-
+ 
+ 
     @Override
     @SuppressWarnings("unchecked")
     public File unregister(Node node)
@@ -105,8 +106,8 @@ public class CachedMeshMapCluster implements MeshMapCluster
             lock.unlock();
         }
     }
-
-
+ 
+ 
     @Override
     public Node getNodeForKey(Object key)
     {
@@ -114,25 +115,25 @@ public class CachedMeshMapCluster implements MeshMapCluster
         try
         {
             Node node = null;
-
+ 
             if (this.nodeMap == null)
             {
                 this.nodeMap = new HashMap<Object, Node>();
             }
-            
+           
             if ((node = this.nodeMap.get(key)) == null)
             {
                 this.nodeMap.put(key, node = delegate.getNodeForKey(key));
             }
-            
+           
             return node;
         } finally
         {
             lock.unlock();
         }
     }
-
-
+ 
+ 
     @Override
     public Node getSuccessorNode()
     {

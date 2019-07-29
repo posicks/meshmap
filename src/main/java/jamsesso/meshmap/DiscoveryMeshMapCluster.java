@@ -1,23 +1,26 @@
 /**
- * 
+*
  */
 package jamsesso.meshmap;
-
+ 
 import java.io.File;
 import java.io.IOException;
+import java.util.Arrays;
+import java.util.Collection;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.logging.Level;
 import java.util.logging.Logger;
-
+ 
 /**
- * @author Steve Posick
- */
+* @author Steve Posick
+*/
 public class DiscoveryMeshMapCluster extends LocalMeshMapCluster
 {
     private static Logger LOG = Logger.getLogger(DiscoveryMeshMapCluster.class.getName());
-    
+   
     protected Map<Node, File> mesh;
-    
+   
     /**
      * @param self
      * @param directory
@@ -27,7 +30,7 @@ public class DiscoveryMeshMapCluster extends LocalMeshMapCluster
     {
         super(self, directory);
         this.mesh = new ConcurrentHashMap<>();
-        
+       
         if (directory != null && directory.isDirectory())
         {
             File[] files = directory.listFiles();
@@ -46,27 +49,45 @@ public class DiscoveryMeshMapCluster extends LocalMeshMapCluster
             throw new MeshMapException("\"" + directory.getName() + "\" is not a directory. Initial Node in Cluster.");
         }
     }
-
-    
+ 
+   
     /**
      * @param self
      * @param directory
-     * @throws MeshMapException 
+     * @throws MeshMapException
+     */
+    public DiscoveryMeshMapCluster(Node self, File directory, Collection<Node> mesh)
+    throws MeshMapException
+    {
+        this(self, directory);
+ 
+        if (mesh != null)
+        {
+            mesh.stream().forEach(node ->
+            {
+                try
+                {
+                    register(node);
+                } catch (MeshMapException e)
+                {
+                    LOG.log(Level.WARNING, "Could not register node \"" + node + "\" with Cluster.", e);
+                }
+            });
+        }
+    }
+ 
+   
+    /**
+     * @param self
+     * @param directory
+     * @throws MeshMapException
      */
     public DiscoveryMeshMapCluster(Node self, File directory, Node... mesh)
     throws MeshMapException
     {
-        this(self, directory);
-
-        if (mesh != null)
-        {
-            for (Node node : mesh)
-            {
-                register(node);
-            }
-        }
+        this(self, directory, Arrays.asList(mesh));
     }
-    
+   
     
     @Override
     @SuppressWarnings("unchecked")
@@ -77,9 +98,9 @@ public class DiscoveryMeshMapCluster extends LocalMeshMapCluster
         {
             throw new MeshMapException("A Node must be provided for cluster registration");
         }
-        
+       
         File file = new File(directory.getAbsolutePath() + File.separator + node.toString());
-        
+       
         try
         {
             if (!file.exists())
@@ -93,7 +114,7 @@ public class DiscoveryMeshMapCluster extends LocalMeshMapCluster
         {
             throw new MeshMapException("Unable to join cluster; File could not be created: " + file.getName(), e);
         }
-        
+       
         File temp = this.mesh.get(node);
         if (temp != null)
         {
@@ -104,11 +125,11 @@ public class DiscoveryMeshMapCluster extends LocalMeshMapCluster
             }
             return temp;
         }
-        
+       
         this.mesh.put(node, file);
         return file;
     }
-    
+   
     
     @Override
     @SuppressWarnings("unchecked")
@@ -121,50 +142,21 @@ public class DiscoveryMeshMapCluster extends LocalMeshMapCluster
         }
         return file;
     }
-    
+   
     
     @Override
-    public <K, V> MeshMap<K, V> join()
-    throws MeshMapException
+    public Message messageHI()
     {
-        if (this.map != null)
-        {
-            return this.map;
-        }
-        
-        File file = new File(directory.getAbsolutePath() + File.separator + self.toString());
-        
-        try
-        {
-            boolean didCreateFile = file.createNewFile();
-            
-            if (!didCreateFile)
-            {
-                throw new MeshMapException("File could not be created: " + file.getName());
-            }
-        } catch (IOException e)
-        {
-            throw new MeshMapException("Unable to join cluster", e);
-        }
-        
-        server = new MeshMapServer(this, self);
-        MeshMapImpl<K, V> map = new MeshMapImpl<>(this, server, self);
-        
-        try
-        {
-            server.start(map);
-            map.open();
-        } catch (IOException e)
-        {
-            throw new MeshMapException("Unable to start the mesh map server", e);
-        }
-        
-        server.broadcast(Message.HI);
-        this.map = map;
-        
-        return map;
+        return new Message(Message.TYPE_HI, getAllNodes().toArray());
     }
+   
     
+    @Override
+    public Message messageACK()
+    {
+        return new Message(Message.TYPE_ACK, getAllNodes().toArray());
+    }
+   
     
     @Override
     public void close()
@@ -172,7 +164,7 @@ public class DiscoveryMeshMapCluster extends LocalMeshMapCluster
     {
         if (server != null)
         {
-            server.broadcast(Message.BYE);
+            server.broadcast(messageBYE());
             server.close();
         }
     }
